@@ -3,6 +3,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -10,6 +11,7 @@ from urllib.error import HTTPError
 
 from quarter_hour.collector import COINBASE, KALSHI, SERIES, Collector, PublicGet, Response, Unavailable
 from quarter_hour.domain import Side
+from quarter_hour.policy import Policy, entry_offer
 from quarter_hour.storage import Store
 
 from .fixtures import START, iso, result_for, snapshot
@@ -22,6 +24,7 @@ class FakePublic:
         self.final = False
         self.fail_spot = False
         self.fail_book = False
+        self.detail_status = "determined"
 
     def get(self, base, path, **query):
         key, event = self.market.ticker, self.market.event
@@ -29,7 +32,7 @@ class FakePublic:
         body = {
             "ticker": key, "event_ticker": event, "market_type": "binary",
             "open_time": iso(START), "close_time": iso(START + 900), "status": "active",
-            "floor_strike": 100000, "strike_type": "greater_or_equal", "can_close_early": False,
+            "floor_strike": 100000, "strike_type": "greater_or_equal", "can_close_early": self.market.can_close_early,
             "rules_primary": "Synthetic terms", "notional_value_dollars": "1.0000",
         }
         if base == COINBASE:
@@ -59,7 +62,7 @@ class FakePublic:
                 data["orderbook_fp"]["yes_dollars"].append(["0.24", "12"])
         else:
             assert path == f"/markets/{key}"
-            data = {"market": body | {"status": "determined", "result": "yes"}}
+            data = {"market": body | {"status": self.detail_status, "result": "yes"}}
             if self.final:
                 data["market"] |= {
                     "status": "finalized", "settlement_ts": iso(START + 930),
@@ -118,6 +121,47 @@ class RecordingTests(unittest.TestCase):
             lines = [json.loads(line) for line in (root / "data.jsonl").read_text().splitlines()]
             self.assertIn("schema_version", lines[0])
             self.assertTrue(any(line.get("table") == "results" for line in lines))
+
+    def test_early_close_market_is_rechecked_after_each_book(self):
+        now = START + 30
+        clock = lambda: now
+        public = FakePublic(clock)
+        public.market = replace(public.market, can_close_early=True)
+        public.detail_status = "active"
+        get = public.get
+
+        def forward(*args, **kwargs):
+            nonlocal now
+            now += .05
+            return get(*args, **kwargs)
+
+        public.get = Mock(side_effect=forward)
+        with tempfile.TemporaryDirectory() as folder, Store(Path(folder) / "local.sqlite3") as store:
+            collector = Collector(store, public, interval=5, clock=clock)
+            collector.collect()
+            now += 5
+            active = collector.collect()
+            self.assertGreaterEqual(active.market.status_requested, active.book.received)
+            self.assertEqual(public.get.call_args_list[-1].args, (KALSHI, f"/markets/{active.ticker}"))
+            self.assertIsNotNone(entry_offer(active, Side.YES, Policy(), at=active.at).buy)
+
+            now += 1
+            public.detail_status = "closed"
+            closed = collector.collect()
+            self.assertEqual(closed.market.status, "closed")
+            self.assertIn("OUTSIDE_TRADING_WINDOW", entry_offer(closed, Side.YES, Policy(), at=closed.at).failures)
+
+    def test_only_official_matching_early_close_can_shorten_settlement(self):
+        example = snapshot()
+        official = replace(example.market, closes=START + 100, can_close_early=True)
+        result = replace(result_for(example), received=START + 120, settled=START + 110, market_close=START + 100)
+        with tempfile.TemporaryDirectory() as folder, Store(Path(folder) / "local.sqlite3") as store:
+            store.save_market(example.market)
+            self.assertFalse(store.save_result(replace(official, can_close_early=False), result))
+            self.assertFalse(store.save_result(replace(official, opens=START - 5), result))
+            self.assertTrue(store.save_result(official, result))
+            self.assertEqual(store.results()[result.ticker].market_close, START + 100)
+            self.assertEqual(store.db.execute("SELECT closes FROM markets").fetchone()[0], example.market.closes)
 
     def test_recorded_identity_time_and_duplicate_worker(self):
         with tempfile.TemporaryDirectory() as folder, Store(Path(folder) / "local.sqlite3") as store:

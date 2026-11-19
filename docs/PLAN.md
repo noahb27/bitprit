@@ -26,7 +26,8 @@ The checkout initially contains a README and the project specification in AGENTS
 - [x] Verified point-in-time features, horizon labels, settlement availability, chronological stages, frozen challengers, sealed holdouts and UNTRAINED on empty data using synthetic fixtures.
 - [x] Verified frozen forecasts and decisions, idempotent writes, paper position recovery, exact official settlement, gated activation and the CLI backup and export paths with fixtures.
 - [x] Ran the Python CLI with standard-library-only Python. The worker recorded source failures and WAIT / UNTRAINED. An empty database produced no artifact. The live-source probe correctly returned exit code 2 for cloud proxy denials.
-- [x] Confirmed Python 3.12 Windows x64 wheels are available for all pinned learner dependencies. Windows execution remains pending.
+- [x] Confirmed Python 3.12 Windows x64 wheels are available for all pinned learner dependencies.
+- [x] The Windows probe captured 12 live books for KXBTC15M-26NOV191600-00 and reported matching spot and fee metadata. Split feed readiness from paper quote policy and added exact-ticker status checks for early-close markets. The updated probe and official finalization still need a local run.
 - [ ] Collect timestamped books for both sides, spot observations, matched finalized results and applicable fee regimes across separate chronological sessions. Retain pre-close book coverage through each forecast horizon and track missing samples.
 - [ ] Predeclare a later holdout and collect fresh forward paper evidence. Establish market/day coverage and uncertainty before drawing empirical conclusions.
 - [ ] Exercise the Windows launcher and backup restore on a Windows machine.

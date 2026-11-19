@@ -77,6 +77,7 @@ class Market:
     notional: Decimal
     can_close_early: bool
     fee_waiver_until: float | None
+    status_requested: float | None = None
 
 
 Level = tuple[Decimal, Decimal]
@@ -133,6 +134,18 @@ class Result:
     received: float
     settled: float | None
     benchmark_value: Decimal | None
+    market_close: float | None = None
+
+    def verified_close(self, market, *, known_at: float) -> float | None:
+        close = market.closes if self.market_close is None else self.market_close
+        if (
+            (self.ticker, self.event) == (market.ticker, market.event)
+            and market.opens < close <= market.closes
+            and close <= self.received <= known_at
+            and (self.settled is None or close <= self.settled <= self.received)
+        ):
+            return close
+        return None
 
 
 @dataclass(frozen=True)

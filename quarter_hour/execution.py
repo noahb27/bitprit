@@ -79,6 +79,12 @@ class Trade:
     exit: Fill
     outcome: str
     reason: str
+    market_close: float | None = None
+
+    @property
+    def exposure_seconds(self) -> float:
+        close = self.market_close if self.market_close is not None else self.position.order.market.closes
+        return max(0, min(self.exit.at, close) - self.position.entry.at)
 
     @property
     def pnl(self) -> Decimal:
@@ -86,7 +92,10 @@ class Trade:
 
     @classmethod
     def load(cls, data):
-        return cls(Position.load(data["position"]), Fill.load(data["exit"]), data["outcome"], data["reason"])
+        return cls(
+            Position.load(data["position"]), Fill.load(data["exit"]),
+            data["outcome"], data["reason"], data.get("market_close"),
+        )
 
 
 @dataclass(frozen=True)
@@ -164,17 +173,13 @@ def attempt_fill(
 
 
 def settlement(position: Position, result: Result | None, at: float) -> Trade | None:
-    market = position.order.market
-    if (
-        result is None or (result.ticker, result.event) != (market.ticker, market.event)
-        or not market.closes <= result.received <= at
-        or (result.settled is not None and not market.closes <= result.settled <= result.received)
-    ):
+    close = result.verified_close(position.order.market, known_at=at) if result else None
+    if close is None or position.entry.at >= close:
         return None
     qty = position.entry.quote.quantity
     gross = Decimal(qty if position.order.side == result.side else 0)
     fill = Fill(0, result.received, Quote(qty, gross, Decimal(0), Decimal(0), (), False))
-    return Trade(position, fill, "settlement", "CARRIED_TO_OFFICIAL_SETTLEMENT")
+    return Trade(position, fill, "settlement", "CARRIED_TO_OFFICIAL_SETTLEMENT", close)
 
 
 def _pending(state, sample, policy, at):

@@ -143,9 +143,7 @@ def forward_report(store, identifier=None, *, trial_from: float | None = None) -
         "model_id": identifier, "days_observed": len(days), "days_with_closed_trades": len(closed_days),
         "entry_intents": buy_intents, "entry_fills": buy_fills, "decision_counts": counts,
         "entry_fill_coverage": buy_fills / buy_intents if buy_intents else None,
-        "completed_exposure_seconds": sum(
-            min(t.exit.at, t.position.order.market.closes) - t.position.entry.at for t in trades
-        ),
+        "completed_exposure_seconds": sum(t.exposure_seconds for t in trades),
         "open_position": state.position is not None,
         "pending_order": state.intent is not None,
     }
@@ -158,7 +156,7 @@ def original_forecast_report(store, identifier=None, *, trial_from=None) -> dict
         JOIN results r ON r.ticker=o.ticker JOIN decisions d ON d.sample_id=o.id
         WHERE f.artifact_id IS NOT NULL AND (? IS NULL OR f.artifact_id=?)
           AND (? IS NULL OR (d.at>=? AND d.mode='trial'))
-          AND o.at<m.closes AND r.received>=m.closes
+          AND o.at<m.closes
         ORDER BY o.at,f.sample_id""",
         (identifier, identifier, trial_from, trial_from),
     )
@@ -167,10 +165,14 @@ def original_forecast_report(store, identifier=None, *, trial_from=None) -> dict
         probability = json.loads(row["payload"])["settlement_yes"]
         if probability is None:
             continue
+        final = json.loads(row["final"])
+        close = final.get("market_close") or row["closes"]
+        if not row["at"] < close <= final["received"]:
+            continue
         first = grouped.setdefault(row["artifact_id"], {})
         if row["ticker"] not in first:
             first[row["ticker"]] = (Example(row["ticker"], utc_day(row["at"]), row["at"], {},
-                (float(json.loads(row["final"])["side"] == "yes"),), row["closes"]), probability)
+                (float(final["side"] == "yes"),), final["received"]), probability)
     return {
         identifier: binary_metrics([item[0] for item in group.values()], [item[1] for item in group.values()])
         for identifier, group in grouped.items()
