@@ -85,7 +85,7 @@ Level = tuple[Decimal, Decimal]
 @dataclass(frozen=True)
 class Book:
     ticker: str
-    requested: float
+    requested: float | None
     received: float
     source_at: float | None
     yes: tuple[Level, ...]
@@ -93,8 +93,8 @@ class Book:
 
     @property
     def observed_at(self) -> float:
-        if self.source_at is None:
-            return self.requested
+        if self.source_at is None or self.requested is None:
+            return self.source_at if self.source_at is not None else self.requested or self.received
         return min(self.source_at, self.requested)
 
     @property
