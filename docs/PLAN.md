@@ -1,0 +1,27 @@
+# Quarter Hour implementation plan
+
+The checkout initially contains a README and the project specification in AGENTS.md. There is no application, recorder, CI configuration, or captured dataset. The attachment supplies a build brief. This project uses Python 3.12 and SQLite for a single-machine Windows workflow. Collection and paper execution run in a terminal process and the local CLI reads the same database. The numerical learner is an optional install. It exports versioned JSON models for the lightweight runtime.
+
+| Milestone | Scope | Acceptance |
+| --- | --- | --- |
+| 1. Assessment | Inventory the checkout and define interfaces and evidence requirements | Plan is versioned and identifies missing inputs and unresolved source verification |
+| 2. Recording | Public spot and market adapters, source and receipt times, durable SQLite, migrations, exports, backups and worker lifecycle | A fixture-driven collection run records depth, errors, official results and restart gaps. Export and restore checks preserve records |
+| 3. Replay | Decimal order-book execution, one position, $5 hard ceiling, time and freshness limits, settlement and simple deterministic baselines | Chronological replay uses the first eligible book after simulated latency, honors size and exact market identity, records failed fills and reports coverage and net results |
+| 4. Learning | Point-in-time features, settlement probabilities and side-specific resale distributions at 30, 60 and 120 seconds | Whole-market chronological splits and leakage tests, statistical and tabular candidates, validation-only calibration and selection, immutable challengers and explicit UNTRAINED output |
+| 5. Paper workflow | Connect the frozen predictor, decision worker, local CLI and Windows launcher | One command starts collection and paper decisions. Forecasts, order intents, fills and health survive restarts. The CLI explains waits and exits and supports review, export and backup |
+
+## Interfaces
+
+- A collector writes public market definitions and snapshots keyed by the exact Kalshi ticker. It stores source provenance and receipt times even when data is invalid.
+- Replay and the paper worker use the same execution and position rules. The learner reads chronological snapshots and official finalized results. The evaluator reads frozen forecasts and computes outcomes separately.
+- The CLI starts the worker and reads the local store for health, decisions and market history. Exports and consistent SQLite snapshots stay outside version control.
+
+## Progress and evidence backlog
+
+- [x] Inspected the repository, build brief and shared workspace. No recorder or dataset was supplied.
+- [ ] Verify official Kalshi rules, fee metadata and endpoint behavior and confirm the spot feed. Initial requests to Kalshi and Coinbase from the cloud received proxy HTTP 403.
+- [ ] Verify the recording and replay milestones using repeatable fixtures.
+- [ ] Verify the learning and paper milestones using tests and an empty-database smoke run.
+- [ ] Collect timestamped books for both sides, spot observations, matched finalized results and applicable fee regimes across separate chronological sessions. Retain pre-close book coverage through each forecast horizon and track missing samples.
+- [ ] Predeclare a later holdout and collect fresh forward paper evidence. Establish market/day coverage and uncertainty before drawing empirical conclusions.
+- [ ] Exercise the Windows launcher and backup restore on a Windows machine.
