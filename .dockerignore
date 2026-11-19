@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!quarter_hour/
+!quarter_hour/**
+quarter_hour/__pycache__/
+quarter_hour/**/*.pyc

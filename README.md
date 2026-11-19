@@ -1,5 +1,7 @@
 # Quarter Hour
 
+For the optional paper-only Railway worker, see [cloud deployment](docs/CLOUD.md).
+
 Quarter Hour records public Kalshi 15-minute Bitcoin markets and Coinbase BTC–USD on one computer. It estimates official Yes settlement and executable pre-close resale for both Yes and No as separate research targets. The worker runs independently of a browser. All execution is paper-only with at most one open position and a hard $5 entry ceiling including estimated entry fees and slippage.
 
 The supplied Node recorder can continue collecting into its own SQLite database. Quarter Hour reads its standalone backups through a compatibility importer. See [the recorder assessment](docs/RECORDER.md) for which old fields support research.
@@ -82,3 +84,4 @@ $HoldoutUntil    = "2025-01-29"
 `train` reports missing coverage or prints an immutable artifact ID. For a complete challenger, use `evaluate ARTIFACT_ID` after the declared holdout ends. Evaluation grades the settlement and resale objectives and compares settlement-only, resale-only and combined policies with no-trade and a fixed rule. If a challenger passes the sealed holdout gates, use `run --trial ARTIFACT_ID` to collect fresh paper evidence under that artifact's exact settings. Inspect it with `report --model ARTIFACT_ID --trial-only`. `promote ARTIFACT_ID` requires both the held-out and forward evidence gates, and takes effect on worker restart.
 
 No real dataset was supplied with the recorder package. Actual training and evaluation need timestamped two-sided books, public spot observations, contemporaneous fee metadata and official finalized matches across separate days. Resale training also needs continuous executable depth through each horizon. The synthetic test results verify software behavior. Forecast accuracy and paper profitability remain unmeasured. See [the evaluation protocol](docs/EVALUATION.md), [the data contract](docs/ARCHITECTURE.md) and [the milestone plan](docs/PLAN.md).
+

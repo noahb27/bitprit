@@ -53,6 +53,8 @@ def parse(argv):
     modes.add_argument("--collect-only", action="store_true", help="record without paper decisions")
     modes.add_argument("--trial", metavar="ARTIFACT", help="paper workflow for an eligible frozen challenger")
     run.add_argument("--cycles", type=bounded_count, help="stop after a bounded number of recording cycles")
+    run.add_argument("--status-every", type=bounded_count,
+                     help="write a compact health summary every N recording cycles")
     run.add_argument("--require-sources", action="store_true",
                      help="check recorded source readiness on the last cycle and exit 2 if unavailable")
     commands.add_parser("stop", help="ask the local worker to stop after the current cycle")
@@ -179,14 +181,19 @@ def _history(store, key):
 
 def run_command(store, args, settings) -> int:
     worker = None if args.collect_only else PaperWorker(store, settings.policy, trial=args.trial)
+    recorded = 0
 
     def sample_update(sample):
+        nonlocal recorded
         if worker:
             decision = worker.record(sample)
             action = f"{decision['action']} {decision['status']} {decision['reason']}"
         else:
             action = ", ".join(sample.flags) or "RECORDED"
         print(f"{iso(sample.at)}  {sample.ticker or 'no current market'}  {action}", flush=True)
+        recorded += 1
+        if args.status_every and (recorded == 1 or recorded % args.status_every == 0):
+            print(json_text({"health": status(store, settings.policy)}), flush=True)
 
     print(f"Quarter Hour paper research  {store.path}", flush=True)
     run_worker(store, interval=settings.interval, timeout=settings.timeout, cycles=args.cycles,
@@ -297,3 +304,4 @@ def main(argv=None):
     except (TypeError, ValueError, OSError, sqlite3.Error) as exc:
         print(f"Quarter Hour: {exc}", file=sys.stderr)
         return 2
+
