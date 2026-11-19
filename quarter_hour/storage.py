@@ -39,6 +39,26 @@ MIGRATIONS = (
             heartbeat REAL NOT NULL, stopped REAL, stop_requested INTEGER NOT NULL DEFAULT 0
         )""",
     ),
+    (
+        """CREATE TABLE artifacts (id TEXT PRIMARY KEY, created REAL NOT NULL, payload TEXT NOT NULL)""",
+        """CREATE TABLE evaluations (
+            artifact_id TEXT PRIMARY KEY REFERENCES artifacts(id),
+            created REAL NOT NULL, starts REAL NOT NULL, ends REAL NOT NULL, payload TEXT NOT NULL
+        )""",
+        """CREATE TABLE active_model (
+            slot INTEGER PRIMARY KEY CHECK(slot=1), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+            activated REAL NOT NULL
+        )""",
+        """CREATE TRIGGER freeze_artifact_update BEFORE UPDATE ON artifacts
+            BEGIN SELECT RAISE(ABORT,'artifacts are immutable'); END""",
+        """CREATE TRIGGER freeze_artifact_delete BEFORE DELETE ON artifacts
+            BEGIN SELECT RAISE(ABORT,'artifacts are immutable'); END""",
+        """CREATE TRIGGER freeze_evaluation_update BEFORE UPDATE ON evaluations
+            BEGIN SELECT RAISE(ABORT,'evaluations are immutable'); END""",
+        """CREATE TRIGGER freeze_evaluation_delete BEFORE DELETE ON evaluations
+            BEGIN SELECT RAISE(ABORT,'evaluations are immutable'); END""",
+    ),
+
 )
 
 
@@ -155,9 +175,14 @@ class Store:
         for row in self.db.execute(query + " ORDER BY at,id", params):
             yield self._decode_snapshot(row)
 
-    def results(self) -> dict[str, Result]:
+    def results(self, *, until: float | None = None) -> dict[str, Result]:
         results = {}
-        for row in self.db.execute("SELECT payload FROM results"):
+        query = "SELECT payload FROM results"
+        params = ()
+        if until is not None:
+            query += " WHERE received<?"
+            params = (until,)
+        for row in self.db.execute(query, params):
             info = json.loads(row["payload"])
             info["side"] = Side(info["side"])
             value = info["benchmark_value"]
