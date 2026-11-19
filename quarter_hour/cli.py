@@ -15,7 +15,7 @@ from .dataset import Periods
 from .domain import Side, elapsed, epoch, json_text, seconds
 from .journal import PaperWorker, forward_report, original_forecast_report, paper_state, promote
 from .legacy import import_recorder
-from .policy import Policy, quote_conditions
+from .policy import Policy, paper_quote_conditions, source_conditions
 from .registry import active_model, evaluation, load_artifact
 from .replay import replay
 from .research import advisors, grade_holdout, replay_many, train
@@ -108,10 +108,12 @@ def source_status(store, policy: Policy) -> dict:
     latest = store.last_snapshot()
     if latest is None:
         return {"ready_at_last_snapshot": False, "failures": ["NO_RECORDED_OBSERVATIONS"]}
-    failures, info = quote_conditions(latest, policy, at=latest.at, entry=True)
-    # A startup marker affects continuity, even when all public endpoints responded.
-    failures = [issue for issue in failures if issue != "COLLECTION_GAP"]
-    result = {"ready_at_last_snapshot": not failures, "failures": failures, **info}
+    failures, info = source_conditions(latest, policy, at=latest.at, entry=True)
+    result = {
+        "ready_at_last_snapshot": not failures, "failures": failures,
+        "paper_policy_failures": paper_quote_conditions(latest, policy, at=latest.at, entry=True),
+        **info,
+    }
     return result | {
         "recorded_at_utc": iso(latest.at), "seconds_since_sample": elapsed(time.time(), latest.at),
         "spot_price": latest.spot.price if latest.spot else None,

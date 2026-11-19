@@ -134,9 +134,7 @@ def replay(
     open_seconds = 0
     if state.position and last_at is not None:
         open_seconds = max(0, min(last_at, state.position.order.market.closes) - state.position.entry.at)
-    closed_seconds = sum(
-        max(0, min(t.exit.at, t.position.order.market.closes) - t.position.entry.at) for t in trades
-    )
+    closed_seconds = sum(t.exposure_seconds for t in trades)
     duration = None if first_at is None else last_at - first_at
     return Replay(trades, state, report | {
         "sample_start": first_at, "sample_end": last_at, "observed_days": len(days),

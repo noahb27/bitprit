@@ -228,17 +228,27 @@ class Store:
         return results
 
     def save_result(self, market: Market, result: Result) -> bool:
-        if (
-            (result.ticker, result.event) != (market.ticker, market.event)
-            or result.received < market.closes
-            or (result.settled is not None and not market.closes <= result.settled <= result.received)
-            or not self.save_market(market)
+        if result.verified_close(market, known_at=result.received) != market.closes:
+            return False
+        recorded = self.db.execute(
+            "SELECT event,opens,closes FROM markets WHERE ticker=?", (market.ticker,),
+        ).fetchone()
+        if recorded is None:
+            if not self.save_market(market):
+                return False
+        elif (
+            (recorded["event"], recorded["opens"]) != (market.event, market.opens)
+            or market.closes > recorded["closes"]
+            or (market.closes < recorded["closes"] and not market.can_close_early)
         ):
             return False
+        result = replace(result, market_close=market.closes)
         row = self.db.execute("SELECT payload FROM results WHERE ticker=?", (result.ticker,)).fetchone()
         if row:
             existing = json.loads(row["payload"])
-            return existing["side"] == result.side and existing["event"] == result.event
+            scheduled = recorded["closes"] if recorded else market.closes
+            original_close = existing.get("market_close") or scheduled
+            return (existing["side"], existing["event"], original_close) == (result.side, result.event, result.market_close)
         self.db.execute(
             "INSERT INTO results VALUES (?,?,?)",
             (result.ticker, result.received, json_text(result)),

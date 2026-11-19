@@ -20,7 +20,7 @@ To customize settings, copy `config.example.toml` to `local.toml`. You can lower
 
 ## Check the public feeds locally
 
-Live integration and the Windows launcher are unverified. The cloud proxy returned HTTP 403 for both live feeds and the Kalshi rules pages. On Windows run this one-minute check in a separate database.
+A Windows run recorded the live market, both bid ladders, the spot price and fee metadata. The cloud proxy returned HTTP 403 for both live feeds and the Kalshi rules pages. Run this one-minute check on your Windows computer in a separate database.
 
 ```powershell
 $Py = ".\.venv\Scripts\python.exe"
@@ -28,7 +28,7 @@ $Py = ".\.venv\Scripts\python.exe"
 & $Py -m quarter_hour --db data\connectivity.sqlite3 status
 ```
 
-A successful probe shows `ready_at_last_snapshot: true`, the exact KXBTC15M ticker, the published strike, both bid ladders, the fee multiplier and source ages. Exit code 2 means the last cycle lacked usable data. Inspect `failures`, `data_flags` and `recent_quality`. The final seconds of a window, a missing target, an empty side or a stale response can legitimately fail the check. Run long enough to cross one market close and allow time for official finalization to verify result recording separately. `refresh-results --checks 12` rechecks closed tickers while the worker is stopped.
+A successful probe shows `ready_at_last_snapshot: true`, the exact KXBTC15M ticker, the published strike, counts for both bid ladders, the fee multiplier and source ages. Exit code 2 means the last cycle lacked usable data. Inspect `failures`, `data_flags` and `recent_quality`. The `paper_policy_failures` field lists additional checks that can block simulated execution, even while the public feeds are available. The market's status, face value and early-close flag appear alongside the ages. Run long enough to cross one market close and allow time for official finalization to verify result recording separately. `refresh-results --checks 12` rechecks closed tickers while the worker is stopped.
 
 Compare the captured terms URL and rules with current Kalshi documentation before relying on the paper assumptions. Coinbase last trades are a spot proxy for the settlement benchmark. REST order books may lack an exchange timestamp. The worker records local request start and receipt and exposes the time basis it used for the age check.
 
