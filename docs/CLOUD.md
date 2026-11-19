@@ -19,6 +19,8 @@ database it records data and WAIT / UNTRAINED decisions.
    Dockerfile and `railway.json`. The entry point refuses to run if `/data` is
    not a mount point; the SQLite database is `/data/quarter-hour.sqlite3`.
 5. Wait for deployment SUCCESS, then inspect runtime logs and source status.
+   Cloud logs include a compact health summary on startup and every 12 samples
+   (about one minute), including source readiness, record counts and quality.
    HTTP 403, network restrictions, missing orderbooks, or missing targets must
    be reported as unavailable data. A running process alone does not establish
    live-feed readiness. Do not bypass provider restrictions.

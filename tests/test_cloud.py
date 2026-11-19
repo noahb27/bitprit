@@ -19,7 +19,7 @@ class CloudTests(unittest.TestCase):
         with patch("quarter_hour.cloud.Path.is_mount", return_value=True), \
              patch("quarter_hour.cli.main", return_value=0) as cli:
             self.assertEqual(cloud.main(), 0)
-            cli.assert_called_once_with(["--db", "/data/quarter-hour.sqlite3", "run"])
+            cli.assert_called_once_with(["--db", "/data/quarter-hour.sqlite3", "run", "--status-every", "12"])
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
 
     def test_container_termination_reaches_worker_interrupt_path(self):
