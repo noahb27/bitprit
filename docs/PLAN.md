@@ -22,7 +22,7 @@ The checkout initially contains a README and the project specification in AGENTS
 - [ ] Verify the current contract terms, fee schedule and live responses. The official Kalshi Python SDK 3.36.0 documents the public order-book and market schemas, event fee overrides and finalized status. Cloud requests to the providers and their documentation received proxy HTTP 403.
 - [x] Inspected the supplied Node recorder, verified its manifest and passed its nine bundled fixture tests. Added a read-only compatibility importer. See [recorder assessment](RECORDER.md).
 - [x] Verified recording fixtures for depth, cache timestamps, invalid input, HTTP backoff, duplicate-worker prevention, restart gaps, finalized results, export and SQLite restore.
-- [ ] Verify the replay milestone.
+- [x] Verified replay fixtures for exact budget and fee arithmetic, full-size depth, current quote matching, latency on both legs, stop jumps, first eligible fills, gaps and expiry to official settlement.
 - [ ] Verify the learning and paper milestones using tests and an empty-database smoke run.
 - [ ] Collect timestamped books for both sides, spot observations, matched finalized results and applicable fee regimes across separate chronological sessions. Retain pre-close book coverage through each forecast horizon and track missing samples.
 - [ ] Predeclare a later holdout and collect fresh forward paper evidence. Establish market/day coverage and uncertainty before drawing empirical conclusions.
