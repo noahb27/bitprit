@@ -110,7 +110,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(report.trades[0].exit.quote.gross, 0)
         self.assertEqual(report.trades[0].exit.at, official.received)
         self.assertFalse(report.metrics["open_position"])
-        self.assertEqual(len(list(stress_cases(samples, cfg))), 5)
+        self.assertEqual(len(list(stress_cases(lambda: iter(samples), cfg))), 5)
 
 
 if __name__ == "__main__":

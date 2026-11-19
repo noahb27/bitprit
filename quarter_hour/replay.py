@@ -200,21 +200,29 @@ def trade_report(trades, days=None, volatility=None) -> dict:
     }
 
 
-def stress_cases(snapshots: list[Snapshot], policy: Policy):
-    """Deterministic perturbations on the identical replay selection."""
-    yield "higher_costs", snapshots, replace(policy, fee_scale=min(10, policy.fee_scale * Decimal("1.5")),
-                                            slippage=min(Decimal(".25"), policy.slippage + Decimal(".02")))
-    yield "extra_latency", snapshots, replace(policy, latency=min(60, policy.latency + 3))
-    remaining = [replace(s, gap=True) if i % 25 == 9 else s
-                 for i, s in enumerate(snapshots) if i % 25 not in (6, 7, 8)]
-    yield "missing_samples_and_restarts", remaining, policy
-    fragile = [
-        replace(s, book=replace(s.book, yes=(), no=tuple((price, qty / 10) for price, qty in s.book.no)))
-        if i % 5 == 0 and s.book else s for i, s in enumerate(snapshots)
-    ]
-    yield "one_sided_thin_depth", fragile, policy
-    old = [
-        replace(s, market=replace(s.market, received=s.at - policy.max_metadata_age - 1))
-        if i % 5 == 0 and s.market else s for i, s in enumerate(snapshots)
-    ]
-    yield "stale_market_metadata", old, policy
+def stress_cases(read, policy: Policy):
+    """Stream deterministic perturbations from the identical replay selection."""
+    def with_gaps():
+        for index, sample in enumerate(read()):
+            if index % 25 not in (6, 7, 8):
+                yield replace(sample, gap=True) if index % 25 == 9 else sample
+
+    def thin_books():
+        for index, sample in enumerate(read()):
+            if index % 5 == 0 and sample.book:
+                book = replace(sample.book, yes=(), no=tuple((price, qty / 10) for price, qty in sample.book.no))
+                sample = replace(sample, book=book)
+            yield sample
+
+    def stale_metadata():
+        for index, sample in enumerate(read()):
+            if index % 5 == 0 and sample.market:
+                sample = replace(sample, market=replace(sample.market, received=sample.at - policy.max_metadata_age - 1))
+            yield sample
+
+    yield "higher_costs", read, replace(policy, fee_scale=min(10, policy.fee_scale * Decimal("1.5")),
+                                        slippage=min(Decimal(".25"), policy.slippage + Decimal(".02")))
+    yield "extra_latency", read, replace(policy, latency=min(60, policy.latency + 3))
+    yield "missing_samples_and_restarts", with_gaps, policy
+    yield "one_sided_thin_depth", thin_books, policy
+    yield "stale_market_metadata", stale_metadata, policy

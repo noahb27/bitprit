@@ -1,8 +1,10 @@
+import io
 import json
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 from urllib.error import HTTPError
 
@@ -148,6 +150,25 @@ class RecordingTests(unittest.TestCase):
             self.assertEqual(client.opener.open.call_count, 1)
             row = store.db.execute("SELECT status FROM raw_responses").fetchone()
             self.assertEqual(row[0], 429)
+
+    def test_public_get_records_payload_and_rejects_http_cached_data(self):
+        class Reply(io.BytesIO):
+            def __init__(self, age):
+                super().__init__(b'{"level": 0.23}')
+                self.status = 200
+                self.headers = {"Age": age}
+
+        with tempfile.TemporaryDirectory() as folder, Store(Path(folder) / "local.sqlite3") as store:
+            client = PublicGet(store, clock=lambda: START)
+            client.opener = SimpleNamespace(open=Mock(side_effect=[Reply("0"), Reply("10")]))
+            response = client.get(KALSHI, "/markets")
+            self.assertEqual(str(response.body["level"]), "0.23")
+            with self.assertRaisesRegex(Unavailable, "cache age"):
+                client.get(KALSHI, "/markets")
+            rows = store.db.execute("SELECT payload FROM raw_responses ORDER BY id").fetchall()
+            self.assertEqual([json.loads(row[0])["http_age"] for row in rows], ["0", "10"])
+            request = client.opener.open.call_args_list[0].args[0]
+            self.assertEqual(request.get_method(), "GET")
 
     def test_backup_is_consistent_during_an_uncommitted_write(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -52,8 +52,6 @@ class Example:
 
 @dataclass
 class Dataset:
-    snapshots: list[Snapshot]
-    features: dict[int, dict[str, float]]
     settlement: list[Example]
     resale: dict[str, list[Example]]
     coverage: dict
@@ -108,12 +106,8 @@ def matched_label(result: Result | None, sample: Snapshot, cutoff: float) -> boo
     )
 
 
-def make_dataset(
-    samples, results: dict[str, Result], policy: Policy, start: float, end: float, *, keep_timeline: bool = True,
-) -> Dataset:
-    timeline = [s for s in samples if start <= s.at < end]
+def make_dataset(samples, results: dict[str, Result], policy: Policy, start: float, end: float) -> Dataset:
     cursor = FeatureCursor()
-    features = {}
     available = set()
     used = set()
     settlements = []
@@ -124,40 +118,62 @@ def make_dataset(
     for result in sorted(results.values(), key=lambda result: result.ticker):
         if start <= result.received < end:
             digest.update(json_text(result).encode())
-    anchors = ready = 0
-    for index, sample in enumerate(timeline):
+
+    # Keep one market's books in memory so multi-day fitting fits on a laptop.
+    window = []
+    pending_anchors = []
+    current = None
+    observations = ready = 0
+
+    def finish_market():
+        for index, facts, day in pending_anchors:
+            sample = window[index]
+            for side in Side:
+                for horizon in HORIZONS:
+                    key = head_key(side, horizon)
+                    label, outcome = delayed_resale(window, index, side, horizon, policy)
+                    labels[key][outcome] += 1
+                    if label:
+                        offer, targets, label_at = label
+                        resale[key].append(Example(sample.ticker, day, sample.at,
+                                                   resale_features(facts, offer, sample), targets, label_at))
+        window.clear()
+        pending_anchors.clear()
+
+    for sample in samples:
+        if not start <= sample.at < end:
+            continue
+        observations += 1
         digest.update(json_text(sample).encode())
         m = sample.market
         facts = cursor.observe(sample, policy)
-        if not m or m.opens < start or m.closes > end:
+        if current and sample.at >= current.closes:
+            finish_market()
+            current = None
+        if current is None and m and start <= m.opens <= sample.at < m.closes <= end:
+            current = m
+        if current is None:
+            continue
+        window.append(sample)
+        if not m or m.ticker != current.ticker:
             continue
         available.add(m.ticker)
         if facts is None:
             continue
         ready += 1
-        if keep_timeline:
-            features[sample.id] = facts
         anchor = next((offset for offset in ANCHORS if offset <= sample.at - m.opens <= offset + ANCHOR_TOLERANCE), None)
         if anchor is None or (m.ticker, anchor) in used:
             continue
         used.add((m.ticker, anchor))
-        anchors += 1
         day = utc_day(m.opens)
+        pending_anchors.append((len(window) - 1, facts, day))
         result = results.get(m.ticker)
         if matched_label(result, sample, end):
             settlements.append(Example(m.ticker, day, sample.at, facts, (float(result.side == Side.YES),), result.received))
-        for side in Side:
-            for horizon in HORIZONS:
-                key = head_key(side, horizon)
-                label, outcome = delayed_resale(timeline, index, side, horizon, policy)
-                labels[key][outcome] += 1
-                if label:
-                    offer, targets, label_at = label
-                    resale[key].append(Example(m.ticker, day, sample.at,
-                                               resale_features(facts, offer, sample), targets, label_at))
-    return Dataset(timeline if keep_timeline else [], features, settlements, dict(resale), {
-        "observations": len(timeline), "whole_markets": len(available), "feature_ready": ready,
-        "anchors": anchors, "settlement_labels": len(settlements),
+    finish_market()
+    return Dataset(settlements, dict(resale), {
+        "observations": observations, "whole_markets": len(available), "feature_ready": ready,
+        "anchors": len(used), "settlement_labels": len(settlements),
         "resale_outcomes": {k: dict(v) for k, v in labels.items()},
     }, digest.hexdigest())
 

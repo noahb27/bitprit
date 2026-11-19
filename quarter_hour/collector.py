@@ -203,11 +203,11 @@ def parse_result(response: Response, expected: str, event: str) -> tuple[Market,
     if market.notional != 1 or (payout not in (None, "") and number(payout) != (side == Side.YES)):
         raise ValueError("non-binary settlement payout")
     settled = epoch(data["settlement_ts"]) if data.get("settlement_ts") else None
-    value = data.get("expiration_value")
-    return market, Result(
-        market.ticker, market.event, side, response.received, settled,
-        positive(value) if value not in (None, "") else None,
-    )
+    try:
+        benchmark = positive(data.get("expiration_value"))
+    except ValueError:
+        benchmark = None
+    return market, Result(market.ticker, market.event, side, response.received, settled, benchmark)
 
 
 BAD_DATA = (KeyError, TypeError, ValueError, ArithmeticError, OverflowError)
@@ -318,7 +318,7 @@ class Collector:
         now = self.clock()
         item = self.store.due_result(now, priority=priority)
         if item is None:
-            return
+            return False
         key, event = item["ticker"], item["event"]
         self.store.checked_result(key, now)
         try:
@@ -329,7 +329,11 @@ class Collector:
                     raise
                 reply = self.http.get(KALSHI, f"/historical/markets/{quote(key)}")
             market, result = parse_result(reply, key, event)
-            if result is not None and not self.store.save_result(market, result):
-                raise ValueError("final result conflicts with the recorded market or result")
+            if result is not None:
+                if not self.store.save_result(market, result):
+                    raise ValueError("final result conflicts with the recorded market or result")
+                if result.benchmark_value is None:
+                    self.store.quality(result.received, "FINAL_BENCHMARK_VALUE_UNAVAILABLE", ticker=key)
         except BAD_DATA as exc:
             self.store.quality(self.clock(), "RESULT_UNAVAILABLE_OR_INVALID", ticker=key, error=str(exc))
+        return True

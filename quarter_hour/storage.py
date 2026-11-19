@@ -58,7 +58,41 @@ MIGRATIONS = (
         """CREATE TRIGGER freeze_evaluation_delete BEFORE DELETE ON evaluations
             BEGIN SELECT RAISE(ABORT,'evaluations are immutable'); END""",
     ),
-
+    (
+        """CREATE TABLE features (
+            sample_id INTEGER PRIMARY KEY REFERENCES observations(id), version TEXT NOT NULL, payload TEXT NOT NULL
+        )""",
+        """CREATE TABLE forecasts (
+            sample_id INTEGER PRIMARY KEY REFERENCES observations(id), artifact_id TEXT REFERENCES artifacts(id),
+            status TEXT NOT NULL, payload TEXT NOT NULL
+        )""",
+        """CREATE TABLE decisions (
+            sample_id INTEGER PRIMARY KEY REFERENCES observations(id), at REAL NOT NULL,
+            artifact_id TEXT REFERENCES artifacts(id), mode TEXT NOT NULL CHECK(mode IN ('paper','trial')),
+            action TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL
+        )""",
+        "CREATE INDEX decision_artifact_mode_time ON decisions(artifact_id,mode,at)",
+        """CREATE TABLE fills (
+            sample_id INTEGER PRIMARY KEY REFERENCES decisions(sample_id),
+            action TEXT NOT NULL, signal_sample INTEGER NOT NULL REFERENCES decisions(sample_id),
+            payload TEXT NOT NULL
+        )""",
+        """CREATE TABLE trades (
+            sample_id INTEGER PRIMARY KEY REFERENCES fills(sample_id),
+            signal_sample INTEGER NOT NULL REFERENCES decisions(sample_id),
+            outcome TEXT NOT NULL CHECK(outcome IN ('resale','settlement')), payload TEXT NOT NULL
+        )""",
+        """CREATE TABLE paper_state (
+            slot INTEGER PRIMARY KEY CHECK(slot=1), last_sample INTEGER NOT NULL REFERENCES decisions(sample_id),
+            payload TEXT NOT NULL
+        )""",
+        *(
+            f"""CREATE TRIGGER freeze_{table}_{operation.lower()} BEFORE {operation} ON {table}
+            BEGIN SELECT RAISE(ABORT,'{table} rows are immutable'); END"""
+            for table in ("features", "forecasts", "decisions", "fills", "trades")
+            for operation in ("UPDATE", "DELETE")
+        ),
+    ),
 )
 
 
@@ -175,13 +209,16 @@ class Store:
         for row in self.db.execute(query + " ORDER BY at,id", params):
             yield self._decode_snapshot(row)
 
-    def results(self, *, until: float | None = None) -> dict[str, Result]:
+    def results(self, *, until: float | None = None, ticker: str | None = None) -> dict[str, Result]:
         results = {}
-        query = "SELECT payload FROM results"
-        params = ()
+        query = "SELECT payload FROM results WHERE 1=1"
+        params = []
         if until is not None:
-            query += " WHERE received<?"
-            params = (until,)
+            query += " AND received<?"
+            params.append(until)
+        if ticker is not None:
+            query += " AND ticker=?"
+            params.append(ticker)
         for row in self.db.execute(query, params):
             info = json.loads(row["payload"])
             info["side"] = Side(info["side"])

@@ -11,7 +11,8 @@ from quarter_hour.dataset import Periods, delayed_resale, make_dataset
 from quarter_hour.domain import Side
 from quarter_hour.features import FeatureCursor
 from quarter_hour.fit import PHASES
-from quarter_hour.policy import Policy
+from quarter_hour.forecast import choose
+from quarter_hour.policy import Policy, entry_offer
 from quarter_hour.registry import load_artifact
 from quarter_hour.research import grade_holdout, train
 from quarter_hour.storage import Store
@@ -55,6 +56,24 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(len(early.settlement), 0)
         self.assertEqual(len(split.settlement), 0)
         self.assertLess(labeled.settlement[0].at, labeled.settlement[0].label_at)
+
+    def test_combined_policy_can_select_a_resale_without_an_expected_settlement_win(self):
+        settings = Policy()
+        for side, sample, p_yes in (
+            (Side.YES, snapshot(), .17),
+            (Side.NO, snapshot(yes=".74", no=".20"), .83),
+        ):
+            with self.subTest(side=side):
+                offers = {key: entry_offer(sample, key, settings, at=sample.at) for key in Side}
+                forecast = {
+                    "status": "READY", "settlement_yes": p_yes, "resale_exclusions": {},
+                    "resale": {f"{side}_60": {"net_return": {"p10": .24, "p50": .31}}},
+                }
+                selected = choose(forecast, offers, settings, "combined")
+                self.assertEqual(selected.side, side)
+                arithmetic = selected.detail["model_arithmetic"][side]
+                self.assertLess(arithmetic["buffered_settlement_net"], 0)
+                self.assertGreater(arithmetic["horizons"][60]["gap_above_required_edge"], 0)
 
     def test_empty_data_stays_untrained(self):
         with tempfile.TemporaryDirectory() as folder, Store(Path(folder) / "none.sqlite3") as store:

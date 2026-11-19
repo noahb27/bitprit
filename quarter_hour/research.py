@@ -30,7 +30,7 @@ def train(store, periods: Periods, policy: Policy) -> dict:
         for phase in PHASES:
             start, end = periods.window(phase)
             data[phase] = make_dataset(store.snapshots(since=start, until=end), results, policy,
-                                       start, end, keep_timeline=False)
+                                       start, end)
     artifact, report = train_models(data, periods, policy)
     if artifact is None:
         return report
@@ -54,19 +54,30 @@ def advisors(features, artifact, *, stress=False) -> dict:
     return result
 
 
-def replay_many(snapshots, results, policy, *, artifact=None, with_stress=False, end=None) -> dict:
-    cursor = FeatureCursor()
-    features = {s.id: cursor.observe(s, policy) for s in snapshots} if artifact is not None else {}
-    reports = {key: replay(snapshots, results, policy, advisor, end_at=end).metrics
-               for key, advisor in advisors(features, artifact).items()}
+def replay_many(read, results, policy, *, artifact=None, with_stress=False, end=None) -> dict:
+    def run(source, settings, stress):
+        current_features = {}
+        metrics = {}
+        for name, advisor in advisors(current_features, artifact, stress=stress).items():
+            if name in STRATEGIES:
+                cursor = FeatureCursor()
+
+                def watch():
+                    for sample in source():
+                        current_features.clear()
+                        current_features[sample.id] = cursor.observe(sample, settings)
+                        yield sample
+
+                samples = watch()
+            else:
+                samples = source()
+            metrics[name] = replay(samples, results, settings, advisor, end_at=end).metrics
+        return metrics
+
+    reports = run(read, policy, False)
     if not with_stress:
         return reports
-    scenarios = {}
-    for name, cases, alternative in stress_cases(snapshots, policy):
-        runner = FeatureCursor()
-        changed = {s.id: runner.observe(s, alternative) for s in cases} if artifact is not None else {}
-        scenarios[name] = {key: replay(cases, results, alternative, advisor, end_at=end).metrics
-                           for key, advisor in advisors(changed, artifact, stress=True).items()}
+    scenarios = {name: run(source, alternative, True) for name, source, alternative in stress_cases(read, policy)}
     return {"base": reports, "stress": scenarios}
 
 
@@ -94,16 +105,17 @@ def _holdout_coverage(data) -> dict:
 def basis_diagnostic(samples, results) -> dict:
     points = defaultdict(dict)
     invalid = set()
+    closes = {}
     for sample in samples:
         market, spot = sample.market, sample.spot
         if not market or not market.closes - 60 <= sample.at < market.closes:
             continue
+        closes[market.ticker] = market.closes
         if sample.gap:
             invalid.add(market.ticker)
         if spot and market.closes - 60 <= spot.source_at <= spot.received <= sample.at:
             points[market.ticker][spot.source_at] = float(spot.price)
     differences = []
-    closes = {sample.ticker: sample.market.closes for sample in samples if sample.market}
     for ticker, result in results.items():
         if ticker not in closes or ticker in invalid or result.benchmark_value is None:
             continue
@@ -141,6 +153,31 @@ def _offline_gates(settlement, resale, policies):
     return {"eligible_for_forward_trial": all(conditions.values()), "checks": conditions}
 
 
+def _holdout_metrics(identifier, artifact, periods, policy, data, coverage, read, results, end):
+    settlement = {
+        "frozen": binary_metrics(data.settlement, [settlement_probability(artifact["settlement"], r.features)
+                                                   for r in data.settlement]),
+        "training_base_rate": binary_metrics(data.settlement, [artifact["training_base_rate"] for _ in data.settlement]),
+        "market_midpoint": binary_metrics(data.settlement, [r.features["yes_mid"] for r in data.settlement]),
+    }
+    resale = {}
+    for key, rows in data.resale.items():
+        predicted = [resale_distribution(artifact["resale"][key], row.features) for row in rows]
+        resale[key] = {}
+        for index, target in enumerate(("exit_value", "net_return")):
+            resale[key][target] = {
+                "frozen": regression_metrics(rows, [p[target] for p in predicted], index),
+                "unchanged_executable_bid": regression_metrics(rows, [unchanged_bid(row, index) for row in rows], index),
+            }
+    policies = replay_many(read, results, policy, artifact=artifact, end=end)
+    return coverage | {
+        "status": "HOLDOUT_GRADED", "artifact_id": identifier, "holdout": [periods.holdout_from, periods.holdout_until],
+        "dataset_digest": data.digest, "settlement": settlement, "fixed_horizon_resale": resale,
+        "policy_replay": policies, "spot_benchmark_basis": basis_diagnostic(read(), results),
+        "gates": _offline_gates(settlement, resale, policies),
+    }
+
+
 def grade_holdout(store, identifier: str) -> dict:
     saved = evaluation(store, identifier)
     if saved:
@@ -157,34 +194,16 @@ def grade_holdout(store, identifier: str) -> dict:
         check_unused_holdout(store, start, end)
         results = store.results(until=end)
         data = make_dataset(store.snapshots(since=start, until=end), results, policy, start, end)
-    coverage = _holdout_coverage(data)
-    if coverage["missing"]:
-        return coverage | {"status": "INSUFFICIENT_HOLDOUT", "artifact_id": identifier}
+        coverage = _holdout_coverage(data)
+        if coverage["missing"]:
+            return coverage | {"status": "INSUFFICIENT_HOLDOUT", "artifact_id": identifier}
 
-    settlement = {
-        "frozen": binary_metrics(data.settlement, [settlement_probability(artifact["settlement"], r.features)
-                                                   for r in data.settlement]),
-        "training_base_rate": binary_metrics(data.settlement, [artifact["training_base_rate"] for _ in data.settlement]),
-        "market_midpoint": binary_metrics(data.settlement, [r.features["yes_mid"] for r in data.settlement]),
-    }
-    resale = {}
-    for key, rows in data.resale.items():
-        predicted = [resale_distribution(artifact["resale"][key], row.features) for row in rows]
-        resale[key] = {}
-        for index, target in enumerate(("exit_value", "net_return")):
-            resale[key][target] = {
-                "frozen": regression_metrics(rows, [p[target] for p in predicted], index),
-                "unchanged_executable_bid": regression_metrics(rows, [unchanged_bid(row, index) for row in rows], index),
-            }
-    timeline = [s for s in data.snapshots if s.market is None or start <= s.market.opens < s.market.closes <= end]
-    policies = {key: replay(timeline, results, policy, advisor, end_at=end).metrics
-                for key, advisor in advisors(data.features, artifact).items()}
-    report = coverage | {
-        "status": "HOLDOUT_GRADED", "artifact_id": identifier, "holdout": [periods.holdout_from, periods.holdout_until],
-        "dataset_digest": data.digest, "settlement": settlement, "fixed_horizon_resale": resale,
-        "policy_replay": policies, "spot_benchmark_basis": basis_diagnostic(timeline, results),
-        "gates": _offline_gates(settlement, resale, policies),
-    }
+        def read():
+            for sample in store.snapshots(since=start, until=end):
+                if sample.market is None or start <= sample.market.opens < sample.market.closes <= end:
+                    yield sample
+
+        report = _holdout_metrics(identifier, artifact, periods, policy, data, coverage, read, results, end)
     with store.transaction():
         saved = evaluation(store, identifier)
         if saved:
