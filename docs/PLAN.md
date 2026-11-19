@@ -19,8 +19,10 @@ The checkout initially contains a README and the project specification in AGENTS
 ## Progress and evidence backlog
 
 - [x] Inspected the repository, build brief and shared workspace. No recorder or dataset was supplied.
-- [ ] Verify official Kalshi rules, fee metadata and endpoint behavior and confirm the spot feed. Initial requests to Kalshi and Coinbase from the cloud received proxy HTTP 403.
-- [ ] Verify the recording and replay milestones using repeatable fixtures.
+- [ ] Verify the current contract terms, fee schedule and live responses. The official Kalshi Python SDK 3.36.0 documents the public order-book and market schemas, event fee overrides and finalized status. Cloud requests to the providers and their documentation received proxy HTTP 403.
+- [ ] Inspect the existing Node recorder when its source is available. The supplied START_WINDOWS.cmd only checks Node.js 24+ and calls recorder.mjs run. No recorder.mjs, package files or database were supplied.
+- [x] Verified recording fixtures for depth, cache timestamps, invalid input, HTTP backoff, duplicate-worker prevention, restart gaps, finalized results, export and SQLite restore.
+- [ ] Verify the replay milestone.
 - [ ] Verify the learning and paper milestones using tests and an empty-database smoke run.
 - [ ] Collect timestamped books for both sides, spot observations, matched finalized results and applicable fee regimes across separate chronological sessions. Retain pre-close book coverage through each forecast horizon and track missing samples.
 - [ ] Predeclare a later holdout and collect fresh forward paper evidence. Establish market/day coverage and uncertainty before drawing empirical conclusions.
