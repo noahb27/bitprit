@@ -62,6 +62,10 @@ class ExecutionTests(unittest.TestCase):
         self.assertIsNotNone(entry_offer(confirmed, Side.YES, cfg, at=confirmed.at).buy)
         self.assertIsNotNone(exit_quote(confirmed, Side.YES, 1, cfg, at=confirmed.at)[0])
 
+        last = snapshot(885)
+        late = replace(last, market=replace(last.market, can_close_early=True, status_requested=last.book.received))
+        self.assertIn("OUTSIDE_TRADING_WINDOW", exit_quote(late, Side.YES, 1, cfg, at=late.at)[1])
+
     def test_replay_uses_earlier_official_settlement_only_after_receipt(self):
         original = snapshot(10, id=1)
         buy = snapshot(12, id=2)

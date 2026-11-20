@@ -111,6 +111,7 @@ def source_status(store, policy: Policy) -> dict:
     if latest is None:
         return {"ready_at_last_snapshot": False, "failures": ["NO_RECORDED_OBSERVATIONS"]}
     failures, info = source_conditions(latest, policy, at=latest.at, entry=True)
+    market, fees = latest.market, latest.fees
     result = {
         "ready_at_last_snapshot": not failures, "failures": failures,
         "paper_policy_failures": paper_quote_conditions(latest, policy, at=latest.at, entry=True),
@@ -121,9 +122,15 @@ def source_status(store, policy: Policy) -> dict:
         "spot_price": latest.spot.price if latest.spot else None,
         "yes_bid_levels": len(latest.book.yes) if latest.book else 0,
         "no_bid_levels": len(latest.book.no) if latest.book else 0,
-        "target": latest.market.strike if latest.market else None,
-        "terms_url": latest.fees.terms_url if latest.fees else None,
-        "settlement_sources": latest.fees.settlement_sources if latest.fees else None,
+        "market_series_ticker": market.series if market else None,
+        "market_event_ticker": market.event if market else None,
+        "market_open_utc": iso(market.opens) if market else None,
+        "market_close_utc": iso(market.closes) if market else None,
+        "market_strike_type": market.strike_type if market else None,
+        "target": market.strike if market else None,
+        "fee_event_ticker": fees.event if fees else None,
+        "terms_url": fees.terms_url if fees else None,
+        "settlement_sources": fees.settlement_sources if fees else None,
     }
 
 

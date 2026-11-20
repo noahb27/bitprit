@@ -25,6 +25,7 @@ class FakePublic:
         self.fail_spot = False
         self.fail_book = False
         self.detail_status = "determined"
+        self.detail_event = None
 
     def get(self, base, path, **query):
         key, event = self.market.ticker, self.market.event
@@ -63,6 +64,8 @@ class FakePublic:
         else:
             assert path == f"/markets/{key}"
             data = {"market": body | {"status": self.detail_status, "result": "yes"}}
+            if self.detail_event:
+                data["market"]["event_ticker"] = self.detail_event
             if self.final:
                 data["market"] |= {
                     "status": "finalized", "settlement_ts": iso(START + 930),
@@ -150,6 +153,15 @@ class RecordingTests(unittest.TestCase):
             closed = collector.collect()
             self.assertEqual(closed.market.status, "closed")
             self.assertIn("OUTSIDE_TRADING_WINDOW", entry_offer(closed, Side.YES, Policy(), at=closed.at).failures)
+
+            now += 1
+            public.detail_status = "active"
+            public.detail_event = active.ticker
+            wrong_event = collector.collect()
+            self.assertEqual(wrong_event.market.event, active.market.event)
+            self.assertTrue(any(flag.startswith("MARKET_STATUS_INVALID") for flag in wrong_event.flags))
+            self.assertIn("EARLY_CLOSE_STATUS_UNCONFIRMED",
+                          entry_offer(wrong_event, Side.YES, Policy(), at=wrong_event.at).failures)
 
     def test_only_official_matching_early_close_can_shorten_settlement(self):
         example = snapshot()

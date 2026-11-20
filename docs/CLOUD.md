@@ -21,6 +21,9 @@ database it records data and WAIT / UNTRAINED decisions.
 5. Wait for deployment SUCCESS, then inspect runtime logs and source status.
    Cloud logs include a compact health summary on startup and every 12 samples
    (about one minute), including source readiness, record counts and quality.
+   The compatibility candidate shows `failures` for feed failures and
+   `paper_policy_failures` for additional simulated execution restrictions.
+   Review [contract compatibility and the read-only acceptance check](KALSHI_COMPATIBILITY.md).
    HTTP 403, network restrictions, missing orderbooks, or missing targets must
    be reported as unavailable data. A running process alone does not establish
    live-feed readiness. Do not bypass provider restrictions.
@@ -53,5 +56,6 @@ across ordinary restarts and redeployments. Removing the volume destroys it.
 
 Monitor credit balance, runtime memory/CPU, errors, source timestamps, and disk
 usage in Railway. Free testing must stop when its credit allowance ends rather
-than automatically upgrading. No continuous deployment, live connectivity,
-training, or profitable performance is claimed until separately verified.
+than automatically upgrading. PR #2 records live feed and persistence checks
+on its pinned commit. Model accuracy and paper results still depend on eligible
+recordings and the separate [evaluation protocol](EVALUATION.md).
