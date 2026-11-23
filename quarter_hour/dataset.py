@@ -98,12 +98,10 @@ def delayed_resale(samples, index: int, side: Side, horizon: int, policy: Policy
 
 
 def matched_label(result: Result | None, sample: Snapshot, cutoff: float) -> bool:
-    m = sample.market
-    return (
-        result is not None and (result.ticker, result.event) == (m.ticker, m.event)
-        and m.closes <= result.received < cutoff
-        and (result.settled is None or m.closes <= result.settled <= result.received)
-    )
+    if result is None or result.received >= cutoff:
+        return False
+    close = result.verified_close(sample.market, known_at=cutoff)
+    return close is not None and sample.at < close
 
 
 def make_dataset(samples, results: dict[str, Result], policy: Policy, start: float, end: float) -> Dataset:

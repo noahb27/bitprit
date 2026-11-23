@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from quarter_hour.domain import Side
 from quarter_hour.execution import Advice, State, advance, cheap_contract, no_trade
-from quarter_hour.policy import HARD_CAP, Policy, entry_offer, sweep
+from quarter_hour.policy import HARD_CAP, Policy, entry_offer, exit_quote, sweep
 from quarter_hour.replay import replay, stress_cases
 
 from .fixtures import result_for, snapshot
@@ -49,6 +49,34 @@ class ExecutionTests(unittest.TestCase):
                 output = advance(State(), observation, {}, cfg, lambda *args: Advice(Side.YES, 60, "model"))
                 self.assertIn(issue, output.decision.reason)
                 self.assertIsNone(output.state.intent)
+
+    def test_early_close_requires_status_request_after_the_book_for_both_legs(self):
+        sample = snapshot()
+        cfg = Policy()
+        market = replace(sample.market, can_close_early=True)
+        for requested in (None, sample.book.received - .01):
+            quote = replace(sample, market=replace(market, status_requested=requested))
+            self.assertIn("EARLY_CLOSE_STATUS_UNCONFIRMED", entry_offer(quote, Side.YES, cfg, at=quote.at).failures)
+            self.assertIn("EARLY_CLOSE_STATUS_UNCONFIRMED", exit_quote(quote, Side.YES, 1, cfg, at=quote.at)[1])
+        confirmed = replace(sample, market=replace(market, status_requested=sample.book.received + .01))
+        self.assertIsNotNone(entry_offer(confirmed, Side.YES, cfg, at=confirmed.at).buy)
+        self.assertIsNotNone(exit_quote(confirmed, Side.YES, 1, cfg, at=confirmed.at)[0])
+
+        last = snapshot(885)
+        late = replace(last, market=replace(last.market, can_close_early=True, status_requested=last.book.received))
+        self.assertIn("OUTSIDE_TRADING_WINDOW", exit_quote(late, Side.YES, 1, cfg, at=late.at)[1])
+
+    def test_replay_uses_earlier_official_settlement_only_after_receipt(self):
+        original = snapshot(10, id=1)
+        buy = snapshot(12, id=2)
+        result = replace(result_for(original), market_close=original.market.opens + 30,
+                         settled=original.market.opens + 32, received=original.market.opens + 45)
+        samples = [original, buy]
+        pending = replay(samples, {original.ticker: result}, Policy(), cheap_contract, end_at=result.received - 1)
+        self.assertTrue(pending.metrics["open_position"])
+        graded = replay(samples, {original.ticker: result}, Policy(), cheap_contract, end_at=result.received)
+        self.assertEqual(graded.metrics["settlement_trades"], 1)
+        self.assertEqual(graded.trades[0].exposure_seconds, 18)
 
     def test_latency_no_fill_on_trigger_and_no_retrospective_peak(self):
         samples = [

@@ -5,10 +5,11 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
-from quarter_hour.cli import main
+from quarter_hour.cli import main, source_status
 from quarter_hour.domain import Side, json_text
 from quarter_hour.forecast import policy_signature
 from quarter_hour.journal import PaperWorker, forward_report, paper_state, promote
@@ -105,6 +106,25 @@ class JournalTests(unittest.TestCase):
             promoted = promote(store, identifier)
             self.assertEqual(promoted["status"], "PAPER_MODEL_ACTIVATED")
             self.assertEqual(active_model(store), identifier)
+
+    def test_source_probe_reports_real_feed_health_separately_from_paper_policy(self):
+        with tempfile.TemporaryDirectory() as folder, Store(Path(folder) / "paper.sqlite3") as store:
+            first = snapshot(20)
+            save(store, replace(first, market=replace(first.market, can_close_early=True, notional=Decimal("2"))))
+            report = source_status(store, Policy())
+            self.assertTrue(report["ready_at_last_snapshot"])
+            self.assertEqual(report["failures"], [])
+            self.assertEqual(report["market_notional_dollars"], 2)
+            self.assertTrue(report["market_can_close_early"])
+            self.assertEqual(report["market_series_ticker"], first.market.series)
+            self.assertEqual(report["market_event_ticker"], first.market.event)
+            self.assertEqual(report["fee_event_ticker"], first.market.event)
+            self.assertEqual(report["market_strike_type"], "greater_or_equal")
+            self.assertIn("UNSUPPORTED_MARKET_NOTIONAL", report["paper_policy_failures"])
+            self.assertIn("EARLY_CLOSE_STATUS_UNCONFIRMED", report["paper_policy_failures"])
+            missing = snapshot(25)
+            save(store, replace(missing, spot=None))
+            self.assertIn("SPOT_MISSING", source_status(store, Policy())["failures"])
 
     def test_cli_status_history_and_restore_paths(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -1,14 +1,13 @@
 """Versioned SQLite store and consistent, portable exports."""
 
 import json
-import os
 import sqlite3
-import tempfile
 import time
 from contextlib import closing, contextmanager
 from dataclasses import replace
 from pathlib import Path
 
+from .archive import backup_database, new_output
 from .domain import Market, Result, Side, Snapshot, json_text, number
 
 MIGRATIONS = (
@@ -228,17 +227,27 @@ class Store:
         return results
 
     def save_result(self, market: Market, result: Result) -> bool:
-        if (
-            (result.ticker, result.event) != (market.ticker, market.event)
-            or result.received < market.closes
-            or (result.settled is not None and not market.closes <= result.settled <= result.received)
-            or not self.save_market(market)
+        if result.verified_close(market, known_at=result.received) != market.closes:
+            return False
+        recorded = self.db.execute(
+            "SELECT event,opens,closes FROM markets WHERE ticker=?", (market.ticker,),
+        ).fetchone()
+        if recorded is None:
+            if not self.save_market(market):
+                return False
+        elif (
+            (recorded["event"], recorded["opens"]) != (market.event, market.opens)
+            or market.closes > recorded["closes"]
+            or (market.closes < recorded["closes"] and not market.can_close_early)
         ):
             return False
+        result = replace(result, market_close=market.closes)
         row = self.db.execute("SELECT payload FROM results WHERE ticker=?", (result.ticker,)).fetchone()
         if row:
             existing = json.loads(row["payload"])
-            return existing["side"] == result.side and existing["event"] == result.event
+            scheduled = recorded["closes"] if recorded else market.closes
+            original_close = existing.get("market_close") or scheduled
+            return (existing["side"], existing["event"], original_close) == (result.side, result.event, result.market_close)
         self.db.execute(
             "INSERT INTO results VALUES (?,?,?)",
             (result.ticker, result.received, json_text(result)),
@@ -258,14 +267,7 @@ class Store:
         self.db.execute("UPDATE markets SET last_check=? WHERE ticker=?", (at, ticker))
 
     def backup(self, path: Path):
-        path = Path(path).resolve()
-        if path == self.path or path.exists():
-            raise ValueError("backup destination must be a new file")
-        with new_output(path) as temporary:
-            with closing(sqlite3.connect(temporary)) as target:
-                self.db.backup(target)
-                if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise ValueError("backup integrity check failed")
+        return backup_database(self.path, path)
 
     def export(self, path: Path):
         if Path(path).resolve().exists():
@@ -284,18 +286,3 @@ class Store:
                             if field in record and record[field] is not None:
                                 record[field] = json.loads(record[field])
                         out.write(json_text({"table": table, "record": record}) + "\n")
-
-
-@contextmanager
-def new_output(path: Path):
-    """Publish a complete file without replacing an existing destination."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, name = tempfile.mkstemp(dir=path.parent, prefix=".quarter-hour-")
-    os.close(fd)
-    temporary = Path(name)
-    try:
-        yield temporary
-        os.link(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)

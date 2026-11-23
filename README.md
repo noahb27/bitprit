@@ -1,5 +1,7 @@
 # Quarter Hour
 
+For the optional paper-only Railway worker, see [cloud deployment](docs/CLOUD.md).
+
 Quarter Hour records public Kalshi 15-minute Bitcoin markets and Coinbase BTC–USD on one computer. It estimates official Yes settlement and executable pre-close resale for both Yes and No as separate research targets. The worker runs independently of a browser. All execution is paper-only with at most one open position and a hard $5 entry ceiling including estimated entry fees and slippage.
 
 The supplied Node recorder can continue collecting into its own SQLite database. Quarter Hour reads its standalone backups through a compatibility importer. See [the recorder assessment](docs/RECORDER.md) for which old fields support research.
@@ -20,7 +22,7 @@ To customize settings, copy `config.example.toml` to `local.toml`. You can lower
 
 ## Check the public feeds locally
 
-Live integration and the Windows launcher are unverified. The cloud proxy returned HTTP 403 for both live feeds and the Kalshi rules pages. On Windows run this one-minute check in a separate database.
+A Windows run recorded the live market, both bid ladders, the spot price and fee metadata. The cloud proxy returned HTTP 403 for both live feeds and the Kalshi rules pages. Run this one-minute check on your Windows computer in a separate database.
 
 ```powershell
 $Py = ".\.venv\Scripts\python.exe"
@@ -28,7 +30,7 @@ $Py = ".\.venv\Scripts\python.exe"
 & $Py -m quarter_hour --db data\connectivity.sqlite3 status
 ```
 
-A successful probe shows `ready_at_last_snapshot: true`, the exact KXBTC15M ticker, the published strike, both bid ladders, the fee multiplier and source ages. Exit code 2 means the last cycle lacked usable data. Inspect `failures`, `data_flags` and `recent_quality`. The final seconds of a window, a missing target, an empty side or a stale response can legitimately fail the check. Run long enough to cross one market close and allow time for official finalization to verify result recording separately. `refresh-results --checks 12` rechecks closed tickers while the worker is stopped.
+A successful probe shows `ready_at_last_snapshot: true`, the exact KXBTC15M ticker, the published strike, counts for both bid ladders, the fee multiplier and source ages. Exit code 2 means the last cycle lacked usable data. Inspect `failures`, `data_flags` and `recent_quality`. The `paper_policy_failures` field lists additional checks that can block simulated execution, even while the public feeds are available. The market's status, face value and early-close flag appear alongside the ages. Run long enough to cross one market close and allow time for official finalization to verify result recording separately. `refresh-results --checks 12` rechecks closed tickers while the worker is stopped.
 
 Compare the captured terms URL and rules with current Kalshi documentation before relying on the paper assumptions. Coinbase last trades are a spot proxy for the settlement benchmark. REST order books may lack an exchange timestamp. The worker records local request start and receipt and exposes the time basis it used for the age check.
 
@@ -44,10 +46,10 @@ $Py = ".\.venv\Scripts\python.exe"
 & $Py -m quarter_hour report
 & $Py -m quarter_hour export exports\research.jsonl
 & $Py -m quarter_hour backup exports\quarter-hour-backup.sqlite3
-& $Py -m quarter_hour --db exports\quarter-hour-backup.sqlite3 status
+& $Py -m quarter_hour verify-backup exports\quarter-hour-backup.sqlite3
 ```
 
-Use `history TICKER --csv exports/curve.csv` with a ticker from `status` to export the recorded bid, ask, spot and forecast curves. Decisions list the input ages, liquidity, timing, costs, uncertainty deductions and rejection reasons. Trades itemize gross, fee, slippage and simulated net proceeds. `report` grades original settlement forecasts and reports realized paper P&L separately. Keep backups on a local NTFS volume and choose a new destination each time. Prefer the backup command during collection so committed WAL data is included.
+Use `history TICKER --csv exports/curve.csv` with a ticker from `status` to export the recorded bid, ask, spot and forecast curves. Decisions list the input ages, liquidity, timing, costs, uncertainty deductions and rejection reasons. Trades itemize gross, fee, slippage and simulated net proceeds. `report` grades original settlement forecasts and reports realized paper P&L separately. Keep backups on a local NTFS volume and choose a new destination each time. The backup command includes committed WAL data and prints a checksum, table counts and the recording range. Review the [recovery and archive workflow](docs/RECOVERY.md) for preserving a copy off-volume and reproducing an evaluation.
 
 If you already have a recording from the supplied Node package, run `node recorder.mjs backup` in its folder. From this repository, import that standalone backup to a fresh database.
 
@@ -82,3 +84,4 @@ $HoldoutUntil    = "2025-01-29"
 `train` reports missing coverage or prints an immutable artifact ID. For a complete challenger, use `evaluate ARTIFACT_ID` after the declared holdout ends. Evaluation grades the settlement and resale objectives and compares settlement-only, resale-only and combined policies with no-trade and a fixed rule. If a challenger passes the sealed holdout gates, use `run --trial ARTIFACT_ID` to collect fresh paper evidence under that artifact's exact settings. Inspect it with `report --model ARTIFACT_ID --trial-only`. `promote ARTIFACT_ID` requires both the held-out and forward evidence gates, and takes effect on worker restart.
 
 No real dataset was supplied with the recorder package. Actual training and evaluation need timestamped two-sided books, public spot observations, contemporaneous fee metadata and official finalized matches across separate days. Resale training also needs continuous executable depth through each horizon. The synthetic test results verify software behavior. Forecast accuracy and paper profitability remain unmeasured. See [the evaluation protocol](docs/EVALUATION.md), [the data contract](docs/ARCHITECTURE.md) and [the milestone plan](docs/PLAN.md).
+

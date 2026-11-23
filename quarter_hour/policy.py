@@ -121,7 +121,7 @@ def sweep(book: Book, fees: Fees, side: Side, quantity: int, policy: Policy, *, 
     return None
 
 
-def quote_conditions(sample: Snapshot, policy: Policy, *, at: float, entry: bool) -> tuple[list[str], dict]:
+def source_conditions(sample: Snapshot, policy: Policy, *, at: float, entry: bool) -> tuple[list[str], dict]:
     m, b, s, f = sample.market, sample.book, sample.spot, sample.fees
     info = {
         "at": at, "sample_id": sample.id, "ticker": sample.ticker, "data_flags": sample.flags,
@@ -131,6 +131,10 @@ def quote_conditions(sample: Snapshot, policy: Policy, *, at: float, entry: bool
         "book_receipt_age_seconds": elapsed(at, b.received if b else None),
         "spot_source_age_seconds": elapsed(at, s.source_at if s else None),
         "metadata_age_seconds": elapsed(at, m.received if m else None),
+        "market_status": m.status if m else None,
+        "market_notional_dollars": m.notional if m else None,
+        "market_can_close_early": m.can_close_early if m else None,
+        "market_status_request_age_seconds": elapsed(at, m.status_requested if m else None),
         "fee_metadata_age_seconds": elapsed(at, f.received if f else None),
         "remaining_seconds": elapsed(m.closes, at) if m else None,
         "exit_time_buffer_seconds": policy.exit_time_buffer, "max_book_age_seconds": policy.max_book_age,
@@ -140,10 +144,6 @@ def quote_conditions(sample: Snapshot, policy: Policy, *, at: float, entry: bool
     failures = []
     if not m:
         failures.append("MARKET_MISSING")
-    elif m.series != "KXBTC15M" or m.notional != 1 or m.can_close_early:
-        failures.append("UNSUPPORTED_MARKET")
-    elif m.status != "active" or not m.opens <= at < m.closes - policy.exit_time_buffer:
-        failures.append("OUTSIDE_TRADING_WINDOW")
     elif not 0 <= at - m.received <= policy.max_metadata_age or (m.updated is not None and m.updated > m.received):
         failures.append("MARKET_METADATA_STALE_OR_FUTURE")
 
@@ -162,21 +162,47 @@ def quote_conditions(sample: Snapshot, policy: Policy, *, at: float, entry: bool
         failures.append("MATCHING_FEE_METADATA_MISSING")
     elif not 0 <= at - f.received <= policy.max_metadata_age:
         failures.append("FEE_METADATA_STALE_OR_FUTURE")
-    elif f.type not in QUADRATIC_TYPES or not 0 <= f.multiplier <= 100:
-        failures.append("UNSUPPORTED_FEE_SCHEDULE")
-    if m and m.fee_waiver_until is not None and at < m.fee_waiver_until:
-        failures.append("UNSUPPORTED_FEE_WAIVER")
 
     if entry:
         if not s:
             failures.append("SPOT_MISSING")
         elif not 0 <= at - s.source_at <= policy.max_spot_age or not s.source_at <= s.received <= sample.at:
             failures.append("SPOT_STALE_OR_FUTURE")
-        if m and (m.strike is None or not m.rules.strip() or m.strike_type not in ("greater", "greater_or_equal")):
-            failures.append("TARGET_OR_RULES_UNSUPPORTED_OR_MISSING")
-        if sample.gap:
-            failures.append("COLLECTION_GAP")
+        if m and (m.strike is None or not m.rules.strip()):
+            failures.append("TARGET_OR_RULES_MISSING")
     return failures, info
+
+
+def paper_quote_conditions(sample: Snapshot, policy: Policy, *, at: float, entry: bool) -> list[str]:
+    m, b, f = sample.market, sample.book, sample.fees
+    failures = []
+    if m:
+        if m.series != "KXBTC15M":
+            failures.append("UNSUPPORTED_MARKET_SERIES")
+        if m.notional != 1:
+            failures.append("UNSUPPORTED_MARKET_NOTIONAL")
+        if m.status != "active" or not m.opens <= at < m.closes - policy.exit_time_buffer:
+            failures.append("OUTSIDE_TRADING_WINDOW")
+        if m.can_close_early and (
+            m.status_requested is None or b is None
+            or not b.received <= m.status_requested <= m.received <= sample.at <= at
+            or at - m.status_requested > policy.max_book_age
+        ):
+            failures.append("EARLY_CLOSE_STATUS_UNCONFIRMED")
+        if m.fee_waiver_until is not None and at < m.fee_waiver_until:
+            failures.append("UNSUPPORTED_FEE_WAIVER")
+        if entry and m.strike_type not in ("greater", "greater_or_equal"):
+            failures.append("TARGET_OR_RULES_UNSUPPORTED_OR_MISSING")
+    if f and (f.type not in QUADRATIC_TYPES or not 0 <= f.multiplier <= 100):
+        failures.append("UNSUPPORTED_FEE_SCHEDULE")
+    if entry and sample.gap:
+        failures.append("COLLECTION_GAP")
+    return failures
+
+
+def quote_conditions(sample: Snapshot, policy: Policy, *, at: float, entry: bool) -> tuple[list[str], dict]:
+    failures, info = source_conditions(sample, policy, at=at, entry=entry)
+    return failures + paper_quote_conditions(sample, policy, at=at, entry=entry), info
 
 
 def entry_offer(

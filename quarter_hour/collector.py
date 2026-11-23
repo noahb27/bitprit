@@ -3,7 +3,7 @@
 import json
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 from urllib.error import HTTPError, URLError
@@ -207,7 +207,7 @@ def parse_result(response: Response, expected: str, event: str) -> tuple[Market,
         benchmark = positive(data.get("expiration_value"))
     except ValueError:
         benchmark = None
-    return market, Result(market.ticker, market.event, side, response.received, settled, benchmark)
+    return market, Result(market.ticker, market.event, side, response.received, settled, benchmark, market.closes)
 
 
 BAD_DATA = (KeyError, TypeError, ValueError, ArithmeticError, OverflowError)
@@ -255,6 +255,13 @@ class Collector:
             raise ValueError(f"expected one active 15-minute market, found {len(candidates)}")
         return candidates[0]
 
+    def _confirm_market(self, market: Market) -> Market:
+        response = self.http.get(KALSHI, f"/markets/{quote(market.ticker)}")
+        checked = parse_market(response.body["market"], response.received, market.ticker)
+        if (checked.event, checked.opens, checked.closes) != (market.event, market.opens, market.closes):
+            raise ValueError("event or market timing changed while capturing the order book")
+        return replace(checked, status_requested=response.requested)
+
     def _capture(self, label: str, flags: list[str], read):
         try:
             return read()
@@ -292,6 +299,10 @@ class Collector:
                 self.http.get(KALSHI, f"/markets/{quote(market.ticker)}/orderbook", depth=100),
                 market.ticker,
             ))
+        if market and market.can_close_early and book:
+            checked = self._capture("MARKET_STATUS", flags, lambda: self._confirm_market(market))
+            if checked is not None:
+                market = checked
         if book:
             if book.crossed:
                 flags.append("CROSSED_OR_LOCKED_BOOK")
@@ -302,7 +313,7 @@ class Collector:
         now = self.clock()
         if spot and now - spot.source_at > 10:
             flags.append("SPOT_SOURCE_AGE_OVER_10S")
-        if market and not market.opens <= now < market.closes:
+        if market and (market.status != "active" or not market.opens <= now < market.closes):
             flags.append("OUTSIDE_MARKET_WINDOW")
         if market and (not market.rules.strip() or market.strike is None):
             flags.append("MISSING_RULES_OR_STRIKE")
