@@ -1,14 +1,13 @@
 """Versioned SQLite store and consistent, portable exports."""
 
 import json
-import os
 import sqlite3
-import tempfile
 import time
 from contextlib import closing, contextmanager
 from dataclasses import replace
 from pathlib import Path
 
+from .archive import backup_database, new_output
 from .domain import Market, Result, Side, Snapshot, json_text, number
 
 MIGRATIONS = (
@@ -268,14 +267,7 @@ class Store:
         self.db.execute("UPDATE markets SET last_check=? WHERE ticker=?", (at, ticker))
 
     def backup(self, path: Path):
-        path = Path(path).resolve()
-        if path == self.path or path.exists():
-            raise ValueError("backup destination must be a new file")
-        with new_output(path) as temporary:
-            with closing(sqlite3.connect(temporary)) as target:
-                self.db.backup(target)
-                if target.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    raise ValueError("backup integrity check failed")
+        return backup_database(self.path, path)
 
     def export(self, path: Path):
         if Path(path).resolve().exists():
@@ -294,18 +286,3 @@ class Store:
                             if field in record and record[field] is not None:
                                 record[field] = json.loads(record[field])
                         out.write(json_text({"table": table, "record": record}) + "\n")
-
-
-@contextmanager
-def new_output(path: Path):
-    """Publish a complete file without replacing an existing destination."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, name = tempfile.mkstemp(dir=path.parent, prefix=".quarter-hour-")
-    os.close(fd)
-    temporary = Path(name)
-    try:
-        yield temporary
-        os.link(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)

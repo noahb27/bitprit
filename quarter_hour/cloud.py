@@ -19,7 +19,10 @@ def main():
 
     previous = signal.signal(signal.SIGTERM, _interrupt)
     try:
-        return cli_main(["--db", str(data / "quarter-hour.sqlite3"), "run", "--status-every", "12"])
+        return cli_main([
+            "--db", str(data / "quarter-hour.sqlite3"), "--volume-limit-mb", "500",
+            "run", "--status-every", "12",
+        ])
     finally:
         signal.signal(signal.SIGTERM, previous)
 

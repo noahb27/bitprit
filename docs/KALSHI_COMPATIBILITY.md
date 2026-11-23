@@ -31,7 +31,7 @@ The Codex proxy returned 403 for the live Kalshi API, the contract PDF, the help
 
 ## Railway acceptance check
 
-Use the existing worker's service shell to inspect one stored market and its fee metadata. This command opens SQLite read-only.
+Use a verified copy from the [recovery runbook](RECOVERY.md) to inspect the recorded Railway market and fee metadata. The command below shows the service path for use after recovery. For offline inspection, substitute the local copy's path in the SQLite URI. The command opens SQLite read-only.
 
 ```sh
 python -c 'import json,sqlite3; db=sqlite3.connect("file:/data/quarter-hour.sqlite3?mode=ro",uri=True); row=db.execute("SELECT payload FROM observations WHERE ticker IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone(); s=json.loads(row[0]); print(json.dumps({k:s[k] for k in ("at","market","fees")},indent=2))'

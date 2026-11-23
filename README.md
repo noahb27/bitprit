@@ -46,10 +46,10 @@ $Py = ".\.venv\Scripts\python.exe"
 & $Py -m quarter_hour report
 & $Py -m quarter_hour export exports\research.jsonl
 & $Py -m quarter_hour backup exports\quarter-hour-backup.sqlite3
-& $Py -m quarter_hour --db exports\quarter-hour-backup.sqlite3 status
+& $Py -m quarter_hour verify-backup exports\quarter-hour-backup.sqlite3
 ```
 
-Use `history TICKER --csv exports/curve.csv` with a ticker from `status` to export the recorded bid, ask, spot and forecast curves. Decisions list the input ages, liquidity, timing, costs, uncertainty deductions and rejection reasons. Trades itemize gross, fee, slippage and simulated net proceeds. `report` grades original settlement forecasts and reports realized paper P&L separately. Keep backups on a local NTFS volume and choose a new destination each time. Prefer the backup command during collection so committed WAL data is included.
+Use `history TICKER --csv exports/curve.csv` with a ticker from `status` to export the recorded bid, ask, spot and forecast curves. Decisions list the input ages, liquidity, timing, costs, uncertainty deductions and rejection reasons. Trades itemize gross, fee, slippage and simulated net proceeds. `report` grades original settlement forecasts and reports realized paper P&L separately. Keep backups on a local NTFS volume and choose a new destination each time. The backup command includes committed WAL data and prints a checksum, table counts and the recording range. Review the [recovery and archive workflow](docs/RECOVERY.md) for preserving a copy off-volume and reproducing an evaluation.
 
 If you already have a recording from the supplied Node package, run `node recorder.mjs backup` in its folder. From this repository, import that standalone backup to a fresh database.
 

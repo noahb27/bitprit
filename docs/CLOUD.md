@@ -38,16 +38,25 @@ dependencies, or sample performance.
 Using Railway's service shell, commands run from `/app`:
 
 ```sh
-python -m quarter_hour --db /data/quarter-hour.sqlite3 status
+python -m quarter_hour --db /data/quarter-hour.sqlite3 --volume-limit-mb 500 storage
+python -m quarter_hour --db /data/quarter-hour.sqlite3 --volume-limit-mb 500 status
 python -m quarter_hour --db /data/quarter-hour.sqlite3 decisions --limit 5
 python -m quarter_hour --db /data/quarter-hour.sqlite3 report
-python -m quarter_hour --db /data/quarter-hour.sqlite3 backup /data/backup-UNIQUE.sqlite3
 ```
 
-Download backups off the volume; a backup on the same volume does not protect
-against volume loss. Check volume usage and export regularly: the recorder saves
-raw API responses and the volume will eventually fill. No data is automatically
-deleted. Do not rely on trial storage retention after credits expire.
+Use `storage` first when space is low. This command measures the filesystem
+without opening SQLite. The cloud worker uses the smaller of filesystem free
+space and the remaining 500 MB budget for files on `/data`, including its WAL
+and any old backups. Periodic health logs include both measures. The worker
+logs `storage_warning` at 100 MB of headroom and `storage_stop` at 50 MB or
+below, using decimal MB. It checks before opening a database for a run and
+before each recording cycle. If the disk fills unexpectedly, the stop report
+says whether SQLite could save the shutdown event. Storage stops exit
+successfully with the existing Railway `ON_FAILURE` restart policy.
+
+Read the [incident recovery and backup runbook](RECOVERY.md) to preserve
+recordings off-volume. The raw database and WAL contain the evidence needed
+for reproducible training and evaluation.
 
 SIGTERM is translated to the worker's existing interrupt handler so shutdown
 records a stop; a forced kill still leaves an explicit unclean-restart/gap
